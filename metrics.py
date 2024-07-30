@@ -24,7 +24,7 @@ def compute_precision(labels, predictions, imputation=0):
         precision = imputation
     return precision
 
-def compute_mrr(df_topk, score_column):
+def compute_mrr(df_topk, score_column, mrr_k=10):
     mrr=0
     grouped = df_topk.groupby('query')
     for query, group in grouped:
@@ -32,14 +32,14 @@ def compute_mrr(df_topk, score_column):
         sorted_group = group.sort_values(by=score_column, ascending=False)
 
         # Iterate over the top k documents
-        for idx, (_, row) in enumerate(sorted_group.iterrows()):
+        for idx, (_, row) in enumerate(sorted_group.iloc[:mrr_k].iterrows()):
             if row['relevance'] == 1:
                 mrr += 1 / (idx + 1)
                 break
     # Calculate the average MRR across all queries
     return round(mrr / grouped.ngroups * 100, 4)
 
-def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentile=0.9, use_all_data_for_cutoff=True, normalized_score=False):
+def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentile=0.9, use_all_data_for_cutoff=False, normalized_score=False):
     df = df.merge(df_label[['query','passage','relevance']], on = ['query','passage'], how='left')
     df['relevance'] = df['relevance'].fillna(0)
     df_k = df[df['rank']<=k]
@@ -69,9 +69,9 @@ def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentil
         mrr = compute_mrr(df_k, score_column)
 
     if apply_filter:
-        return {'k': k, 'precision': precision, 'recall': recall, 'auc': float(auc), 'mrr': mrr, 'threshold': threshold}
+        return {'k': k, 'precision': precision, 'recall': recall, 'auc': float(auc), 'mrr@10': mrr, 'threshold': threshold}
     else:
-        return {'k': k, 'precision': precision, 'recall': recall, 'auc': float(auc), 'mrr': mrr}
+        return {'k': k, 'precision': precision, 'recall': recall, 'auc': float(auc), 'mrr@10': mrr}
 
 def main():
     parser = argparse.ArgumentParser()
