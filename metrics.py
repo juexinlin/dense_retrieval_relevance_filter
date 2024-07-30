@@ -7,12 +7,10 @@ import json
 import pandas as pd
 import torch
 
-def precision_and_threshold_at_recall(labels, scores, percentile=0.9, normalized_score=False):
+def precision_and_threshold_at_recall(labels, scores, percentile=0.9):
     """
     get the precision/threshold when recall is at certain percentage
     """
-    if normalized_score:
-        scores = scores/max(scores)
     precision, recall, threshold = precision_recall_curve(labels, scores)
     idx = np.argmin(recall > percentile)
     return precision[idx], recall[idx], threshold[idx]
@@ -39,7 +37,7 @@ def compute_mrr(df_topk, score_column, mrr_k=10):
     # Calculate the average MRR across all queries
     return round(mrr / grouped.ngroups * 100, 4)
 
-def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentile=0.9, use_all_data_for_cutoff=False, normalized_score=False):
+def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentile=0.9, use_all_data_for_cutoff=False):
     df = df.merge(df_label[['query','passage','relevance']], on = ['query','passage'], how='left')
     df['relevance'] = df['relevance'].fillna(0)
     df_k = df[df['rank']<=k]
@@ -53,7 +51,7 @@ def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentil
         if not use_all_data_for_cutoff:
             df = df_k
         precision, recall, threshold = precision_and_threshold_at_recall(
-            df['relevance'].values, df[score_column].values, percentile, normalized_score)
+            df['relevance'].values, df[score_column].values, percentile)
         mrr = compute_mrr(df_k[df_k[score_column]>threshold], score_column)
         precision = compute_precision(df_k['relevance'] == 1, df_k[score_column]>threshold)
         removed_percentage = sum(df_k[score_column] < threshold) / len(df_k) * 100
@@ -92,6 +90,10 @@ def main():
     df_adjusted['rank'] = df_adjusted.groupby('query')['model_score'].rank(method='min', ascending=False)
     output_file_path = args.inference_output.replace('results_test.json', 'metrics_test.json')
     normalized_score = args.normalized_score
+    if normalized_score:
+        df_adjusted['norm_model_score'] = df_adjusted.groupby('query')['model_score'].transform(lambda x: x/ x.max())
+        df_adjusted['norm_adjusted_score'] = df_adjusted.groupby('query')['adjusted_score'].transform(lambda x: x/ x.max())
+
     f_out = open(output_file_path, 'w')
 
     for k in [10, 100, 1000]:
@@ -104,17 +106,7 @@ def main():
         print(metrics)
         metrics['type'] = 'adjusted scores'
         f_out.write(json.dumps(metrics) + '\n')
-        #print('recall = 99%')
-        #metrics = compute_metrics(df_adjusted, df_label, k, score_column='model_score', apply_filter=True, percentile=0.99)
-        #print(metrics)
-        #metrics['type'] = 'model scores w/ filter, p99'
-        #f_out.write(json.dumps(metrics) + '\n')
-        #metrics = compute_metrics(df_adjusted, df_label, k, score_column='adjusted_score', apply_filter=True, percentile=0.99)
-        #print(metrics)
-        #metrics['type'] = 'adjusted scores w/ filter, p99'
-        #f_out.write(json.dumps(metrics) + '\n')
         print('recall = 95%')
-        #print('adjusted scores w/ filter, p95')
         metrics = compute_metrics(df_adjusted, df_label, k, score_column='model_score', apply_filter=True, percentile=0.95)
         print(metrics)
         metrics['type'] = 'model scores w/ filter, p95'
@@ -125,11 +117,11 @@ def main():
         f_out.write(json.dumps(metrics) + '\n')
         if normalized_score:
             print('recall = 95% (max normalized)')
-            metrics = compute_metrics(df_adjusted, df_label, k, score_column='model_score', apply_filter=True, percentile=0.95, normalized_score=True)
+            metrics = compute_metrics(df_adjusted, df_label, k, score_column='norm_model_score', apply_filter=True, percentile=0.95)
             print(metrics)
             metrics['type'] = 'model scores (max normalized) w/ filter, p95'
             f_out.write(json.dumps(metrics) + '\n')
-            metrics = compute_metrics(df_adjusted, df_label, k, score_column='adjusted_score', apply_filter=True, percentile=0.95, normalized_score=True)
+            metrics = compute_metrics(df_adjusted, df_label, k, score_column='norm_adjusted_score', apply_filter=True, percentile=0.95)
             print(metrics)
             metrics['type'] = 'adjusted scores (max normalized) w/ filter, p95'
             f_out.write(json.dumps(metrics) + '\n')
