@@ -124,15 +124,6 @@ def main():
         metrics['type'] = 'adjusted scores w/ filter, p95'
         f_out.write(json.dumps(metrics) + '\n')
         if normalized_score:
-            print('no filter (max normalized)')
-            metrics = compute_metrics(df_adjusted, df_label, k, score_column='model_score', apply_filter=False, normalized_score=True)
-            print(metrics)
-            metrics['type'] = 'model_scores (max normalized)'
-            f_out.write(json.dumps(metrics) + '\n')
-            metrics = compute_metrics(df_adjusted, df_label, k, score_column='adjusted_score', apply_filter=False, normalized_score=True)
-            print(metrics)
-            metrics['type'] = 'adjusted scores (max normalized)'
-            f_out.write(json.dumps(metrics) + '\n')
             print('recall = 95% (max normalized)')
             metrics = compute_metrics(df_adjusted, df_label, k, score_column='model_score', apply_filter=True, percentile=0.95, normalized_score=True)
             print(metrics)
