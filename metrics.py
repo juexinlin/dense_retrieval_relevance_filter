@@ -22,7 +22,7 @@ def compute_precision(labels, predictions, imputation=0):
         precision = imputation
     return precision
 
-def compute_mrr(df_topk, score_column, mrr_k=10):
+def compute_mrr(df_topk, score_column, mrr_k=10, num_query=None):
     mrr=0
     grouped = df_topk.groupby('query')
     for query, group in grouped:
@@ -35,7 +35,10 @@ def compute_mrr(df_topk, score_column, mrr_k=10):
                 mrr += 1 / (idx + 1)
                 break
     # Calculate the average MRR across all queries
-    return round(mrr / grouped.ngroups * 100, 4)
+    if num_query:
+        return round(mrr / num_query * 100, 4)
+    else:
+        return round(mrr / grouped.ngroups * 100, 4)
 
 def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentile=0.9, use_all_data_for_cutoff=False):
     df = df.merge(df_label[['query','passage','relevance']], on = ['query','passage'], how='left')
@@ -52,7 +55,8 @@ def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentil
             df = df_k
         precision, recall, threshold = precision_and_threshold_at_recall(
             df['relevance'].values, df[score_column].values, percentile)
-        mrr = compute_mrr(df_k[df_k[score_column]>threshold], score_column)
+        query_count = df_k.groupby('query').ngroups
+        mrr = compute_mrr(df_k[df_k[score_column]>threshold], score_column, query_count)
         precision = compute_precision(df_k['relevance'] == 1, df_k[score_column]>threshold)
         removed_percentage = sum(df_k[score_column] < threshold) / len(df_k) * 100
         removed_positive_percentage = sum((df_k[score_column] < threshold) & (df_k['relevance']>0)) / len(df_k) * 100
