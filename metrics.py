@@ -56,7 +56,7 @@ def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentil
         precision, recall, threshold = precision_and_threshold_at_recall(
             df['relevance'].values, df[score_column].values, percentile)
         query_count = df_k.groupby('query').ngroups
-        mrr = compute_mrr(df_k[df_k[score_column]>threshold], score_column, query_count)
+        mrr = compute_mrr(df_k[df_k[score_column]>threshold], score_column, num_query=query_count)
         precision = compute_precision(df_k['relevance'] == 1, df_k[score_column]>threshold)
         removed_percentage = sum(df_k[score_column] < threshold) / len(df_k) * 100
         removed_positive_percentage = sum((df_k[score_column] < threshold) & (df_k['relevance']>0)) / len(df_k) * 100
