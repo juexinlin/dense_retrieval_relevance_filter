@@ -56,7 +56,7 @@ def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentil
         precision, recall, threshold = precision_and_threshold_at_recall(
             df['relevance'].values, df[score_column].values, percentile)
         query_count = df_k.groupby('query').ngroups
-        mrr = compute_mrr(df_k[df_k[score_column]>threshold], score_column, num_query=query_count)
+        mrr = compute_mrr(df_k[df_k[score_column]>threshold], score_column, mrr_k=k, num_query=query_count)
         precision = compute_precision(df_k['relevance'] == 1, df_k[score_column]>threshold)
         removed_percentage = sum(df_k[score_column] < threshold) / len(df_k) * 100
         removed_positive_percentage = sum((df_k[score_column] < threshold) & (df_k['relevance']>0)) / len(df_k) * 100
@@ -68,12 +68,12 @@ def compute_metrics(df, df_label, k, score_column, apply_filter=False, percentil
         # recall
         df_r = df_label[['query','passage','relevance']].merge(df_k[['query','passage','rank']], on = ['query','passage'], how='left')
         recall = df_r.groupby('query')['rank'].apply(lambda x: sum(x<=k)/len(x)).mean()
-        mrr = compute_mrr(df_k, score_column)
+        mrr = compute_mrr(df_k, score_column, mrr_k=k)
 
     if apply_filter:
-        return {'k': k, 'precision': precision, 'recall': recall, 'auc': float(auc), 'mrr@10': mrr, 'threshold': threshold}
+        return {'k': k, 'precision': precision, 'recall': recall, 'auc': float(auc), 'mrr': mrr, 'threshold': threshold}
     else:
-        return {'k': k, 'precision': precision, 'recall': recall, 'auc': float(auc), 'mrr@10': mrr}
+        return {'k': k, 'precision': precision, 'recall': recall, 'auc': float(auc), 'mrr': mrr}
 
 def main():
     parser = argparse.ArgumentParser()
