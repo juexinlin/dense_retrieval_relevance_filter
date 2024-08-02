@@ -12,10 +12,14 @@ import inspect
 from transformers.trainer_callback import PrinterCallback
 from guardrail_trainer import GuardrailTrainer, compute_adjusted_score, _unpack_qp
 from model import CosineNormalizerVector, CosineNormalizerLinearOffset, CosineNormalizerScalerOffset, CosineNormalizerPolyOffset, BaseModel, Choppy
+from guardrail_trainer import dot_product
 import os
 from functools import partial
 from torcheval.metrics.functional import binary_auprc
 import json
+import tqdm
+import numpy as np
+from collections import Counter
 
 fileHandler = logging.FileHandler(filename='training_info.log', mode='w')
 logging.basicConfig(level=logging.INFO,
@@ -114,24 +118,58 @@ def main():
         run_recall_inference = not train_dataset # recall set inference
         if run_recall_inference: 
             f = open(os.path.join(args.output_dir, 'results_test.json'), 'w')
-
         adjusted_scores_list = []
         model_scores_list = []
         label_list = []
-        for i, inputs in enumerate(loader):
+        argmax_predictions=[]
+        retrieved_positives = 0
+        all_positives = 0
+
+        for i, inputs in enumerate(tqdm.tqdm(loader, total=len(loader), desc="Processing", ncols=100)):
             query_input_dict, passage_input_dict = _unpack_qp(inputs)
             tower_model.to(device=query_input_dict['input_ids'].device)
             with torch.no_grad():
                 query_emb = tower_model.forward(query_input_dict).to(torch.float32)
                 passage_emb = tower_model.forward(passage_input_dict).to(torch.float32)
-            model.to(device=query_input_dict['input_ids'].device)
-            model_output = model(query_emb.float(), passage_emb.float())
-            guardrails = model_output.guardrails
-            adjusted_scores, model_scores = compute_adjusted_score(query_emb, passage_emb, model_output.guardrails, args.model_type, return_model_scores=True)
 
-            adjusted_scores_list.extend(adjusted_scores.squeeze().tolist())
-            model_scores_list.extend(model_scores.squeeze().tolist())
-            label_list.extend(inputs['labels'].squeeze().tolist())
+            model.to(device=query_input_dict['input_ids'].device)
+            ### if non choppy
+            if args.model_type=='choppy':
+                model_scores = dot_product(query_emb, passage_emb)
+
+                model_scores = model_scores.reshape(query_emb.shape[0], -1, 1)
+                # reshape the labels in the same way
+                labels = inputs['labels'].reshape(query_emb.shape[0], -1, 1)
+                sorted_model_scores, indices = torch.sort(model_scores, dim=1, descending=True)
+                sorted_labels = torch.gather(labels, 1, indices)
+
+                # pass scores and labels to choppy
+                sliced_tensor = sorted_model_scores[:, :model.seq_len, :]
+                cuttoff_probabilities = model(sliced_tensor)
+                # we compute the argmax and return that
+                argmaxes = torch.argmax(cuttoff_probabilities, dim=1, keepdim=True)
+
+                sliced_labels = []
+                vectors_sizes = 0
+                for i in range(sorted_labels.size(0)):
+                    sliced = sorted_labels[i, :argmaxes[i] + 1]
+                    vectors_sizes += sliced.size()[0]
+                    sliced_labels.append(sorted_labels[i, :argmaxes[i] + 1])
+
+                sliced_labels = torch.stack(sliced_labels)
+
+                retrieved_positives += sliced_labels.sum().item()
+                all_positives += labels.sum().item()
+                argmax_predictions.extend(argmaxes.cpu().numpy().ravel().tolist())
+            else:
+
+                model_output = model(query_emb.float(), passage_emb.float())
+                guardrails = model_output.guardrails
+                adjusted_scores, model_scores = compute_adjusted_score(query_emb, passage_emb, model_output.guardrails, args.model_type, return_model_scores=True)
+
+                adjusted_scores_list.extend(adjusted_scores.squeeze().tolist())
+                model_scores_list.extend(model_scores.squeeze().tolist())
+                label_list.extend(inputs['labels'].squeeze().tolist())
 
             #import pdb; pdb.set_trace()
             #binary_auprc(adjusted_scores.squeeze(), inputs['labels'].squeeze()) - binary_auprc(model_scores.squeeze(), inputs['labels'].squeeze())
@@ -142,12 +180,22 @@ def main():
 
         if run_recall_inference:
             f.close()
-        
-        baseline_auc = binary_auprc(torch.tensor(model_scores_list), torch.tensor(label_list))
-        adjusted_auc = binary_auprc(torch.tensor(adjusted_scores_list), torch.tensor(label_list))
-        print('baseline AUC: ', baseline_auc)
-        print('adjusted AUC: ', adjusted_auc)
-        print('AUC improvement: ', adjusted_auc - baseline_auc)
+
+        if args.model_type == 'choppy':
+            recall  = np.round(retrieved_positives/all_positives,3)
+            precision  = np.round(retrieved_positives/vectors_sizes,3)
+            Counter(argmax_predictions)
+            print('recall: ', recall)
+            print('precision ', precision)
+            print(f'argmax distribution: {argmax_predictions}')
+
+
+        else:
+            baseline_auc = binary_auprc(torch.tensor(model_scores_list), torch.tensor(label_list))
+            adjusted_auc = binary_auprc(torch.tensor(adjusted_scores_list), torch.tensor(label_list))
+            print('baseline AUC: ', baseline_auc)
+            print('adjusted AUC: ', adjusted_auc)
+            print('AUC improvement: ', adjusted_auc - baseline_auc)
 
 
     return
