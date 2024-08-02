@@ -48,6 +48,20 @@ def compute_adjusted_score(query_emb, passage_emb, guardrails, model_type, retur
         param2 = torch.unsqueeze(guardrails[:, 1], 1)
         param1 = param1.repeat_interleave(train_n_passages, dim=0)
         param2 = param2.repeat_interleave(train_n_passages, dim=0)
+        adjusted_scores = param1 * model_scores + param2
+    elif model_type == 'sqrt_offset':
+        train_n_passages = int(passage_emb.shape[0] / query_emb.shape[0])
+        param1 = torch.unsqueeze(guardrails[:, 0], 1)
+        param2 = torch.unsqueeze(guardrails[:, 1], 1)
+        param1 = param1.repeat_interleave(train_n_passages, dim=0)
+        param2 = param2.repeat_interleave(train_n_passages, dim=0)
+        adjusted_scores = param1 * model_scores**0.5 + param2
+    elif model_type == 'quadratic_offset':
+        train_n_passages = int(passage_emb.shape[0] / query_emb.shape[0])
+        param1 = torch.unsqueeze(guardrails[:, 0], 1)
+        param2 = torch.unsqueeze(guardrails[:, 1], 1)
+        param1 = param1.repeat_interleave(train_n_passages, dim=0)
+        param2 = param2.repeat_interleave(train_n_passages, dim=0)
         adjusted_scores = param1 * model_scores**2 + param2
     elif model_type == 'polynomial_offset':
         train_n_passages = int(passage_emb.shape[0] / query_emb.shape[0])
@@ -57,7 +71,7 @@ def compute_adjusted_score(query_emb, passage_emb, guardrails, model_type, retur
         param1 = param1.repeat_interleave(train_n_passages, dim=0)
         param2 = param2.repeat_interleave(train_n_passages, dim=0)
         param3 = param3.repeat_interleave(train_n_passages, dim=0)
-        adjusted_scores = param1 * model_scores**(torch.sigmoid(param3)) + param2
+        adjusted_scores = param1 * model_scores**(2*torch.sigmoid(param3)) + param2
     else:
         raise Exception(f'Model type: {model_type} not supported')
     if return_model_scores:

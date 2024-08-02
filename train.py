@@ -28,7 +28,7 @@ def get_model(model_type, input_dim):
         model = CosineNormalizerVector(input_dim)
     elif model_type == 'scaler_offset':
         model = CosineNormalizerScalerOffset(input_dim)
-    elif model_type == 'linear_offset':
+    elif model_type in ['linear_offset', 'sqrt_offset', 'quadratic_offset']:
         model = CosineNormalizerLinearOffset(input_dim)
     elif model_type == 'polynomial_offset':
         model = CosineNormalizerPolyOffset(input_dim)
