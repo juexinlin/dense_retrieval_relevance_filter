@@ -21,7 +21,7 @@ def read_labels(path):
                 relevant_dict[q_id].append(p_id)
     return relevant_dict
 
-def get_label(q_id, p_id):
+def get_label(q_id, p_id,relevant_dict):
     if p_id in relevant_dict[q_id]:
         label = 1.
     else:
@@ -42,7 +42,7 @@ def main():
     args = parser.parse_args()
 
     query_dict = read_queries(os.path.join(args.data_dir, 'dev_queries.tsv'))
-    relevant_dict = read_relevance(os.path.join(args.data_dir, 'dev_qrels.txt'))
+    relevant_dict = read_labels(os.path.join(args.data_dir, 'dev_qrels.txt'))
 
     f_out = open(args.output_file, 'w')
 
@@ -55,16 +55,16 @@ def main():
                     continue
                 out['query_id'] = q_id
                 out['query'] = query_dict[q_id]
-                label = get_label(q_id, p_id)
+                label = get_label(q_id, p_id,relevant_dict)
                 out['negatives'] = {"doc_id": [p_id], 'score': [label]}
             elif out and out['query_id'] == q_id:
                 out['negatives']['doc_id'].append(p_id)
-                out['negatives']['score'].append(get_label(q_id, p_id))
+                out['negatives']['score'].append(get_label(q_id, p_id,relevant_dict))
             elif out and out['query_id'] != q_id:
                 f_out.write(json.dumps(out) + '\n')
                 if q_id in query_dict:
                     out = {'query_id': q_id, 'query': query_dict[q_id],
-                           'negatives': {"doc_id": [p_id], 'score': [get_label(q_id, p_id)]}}
+                           'negatives': {"doc_id": [p_id], 'score': [get_label(q_id, p_id,relevant_dict)]}}
     if out:
         f_out.write(json.dumps(out) + '\n')
     f_out.close()

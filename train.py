@@ -11,19 +11,24 @@ from transformers import HfArgumentParser, AutoTokenizer, AutoModel
 import inspect
 from transformers.trainer_callback import PrinterCallback
 from guardrail_trainer import GuardrailTrainer, compute_adjusted_score, _unpack_qp
-from model import CosineNormalizerVector, CosineNormalizerLinearOffset, CosineNormalizerScalerOffset, CosineNormalizerPolyOffset, BaseModel
+from model import CosineNormalizerVector, CosineNormalizerLinearOffset, CosineNormalizerScalerOffset, CosineNormalizerPolyOffset, BaseModel, Choppy
 import os
 from functools import partial
 from torcheval.metrics.functional import binary_auprc
 import json
 
+fileHandler = logging.FileHandler(filename='training_info.log', mode='w')
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s %(name)s %(levelname)s:%(message)s')
+logger = logging.getLogger(__name__)
+logger.addHandler(fileHandler)
 
 def filter_arguments(mydict,my_class):
     filtered_mydict = {k: v for k, v in mydict.items() if
                        k in [p.name for p in inspect.signature(my_class.__init__).parameters.values()]}
     return filtered_mydict
 
-def get_model(model_type, input_dim):
+def get_model(model_type, input_dim,train_n_passages):
     if model_type == 'vector':
         model = CosineNormalizerVector(input_dim)
     elif model_type == 'scaler_offset':
@@ -32,6 +37,8 @@ def get_model(model_type, input_dim):
         model = CosineNormalizerLinearOffset(input_dim)
     elif model_type == 'polynomial_offset':
         model = CosineNormalizerPolyOffset(input_dim)
+    elif model_type == 'choppy':
+        model = Choppy(seq_len=train_n_passages)
     else:
         raise Exception(f'Model type: {model_type} not supported')
     return model
@@ -43,7 +50,6 @@ def compute_metrics(tower_model, model_type, eval_pred):
     guardrails = predictions[2]
     adjusted_scores, model_scores = compute_adjusted_score(q_emb, p_emb, guardrails, model_type, return_model_scores=True)
     auc_improvement = binary_auprc(adjusted_scores, labels) - binary_auprc(model_scores, labels)
-    self.log({"auc_improvement": auc_improvement})
     return {"auc_improvement": auc_improvement}
 
 def main():
@@ -53,19 +59,13 @@ def main():
     #os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
     #os.environ["CUDA_VISIBLE_DEVICES"]=str(args.device)
     
-    fileHandler = logging.FileHandler(filename='training_info.log', mode='w')
-    logging.basicConfig(level=logging.INFO,
-                        format='%(asctime)s %(name)s %(levelname)s:%(message)s')
-    logger = logging.getLogger(__name__)
-    logger.addHandler(fileHandler)
-    
     logger.info('Args={}'.format(str(args)))
     #tower_model = AutoModel.from_pretrained(args.model_name_or_path, torch_dtype=torch.float16) 
     tower_model = BaseModel(args.model_name_or_path)
     # freeze the tower model
     for name, param in tower_model.named_parameters():
         param.requires_grad = False 
-    model = get_model(args.model_type, tower_model.model.config.hidden_size)
+    model = get_model(args.model_type, tower_model.model.config.hidden_size,args.train_n_passages)
     if args.do_eval:
         model.load_state_dict(torch.load(os.path.join(args.output_dir, "pytorch_model.bin")))
         model.eval()
